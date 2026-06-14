@@ -1,33 +1,42 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
+import { put, list } from '@vercel/blob';
 
-// Menentukan jalur ke file database lokal (knowledge.json)
-const filePath = path.join(process.cwd(), 'data/knowledge.json');
+// Nama file di Vercel Blob
+const BLOB_PATH = 'knowledge.json';
 
-// 1. GET: Mengambil semua data dari knowledge.json untuk ditampilkan di Dashboard Admin
+// 1. GET: Mengambil data dari Vercel Blob
 export async function GET() {
   try {
-    if (!fs.existsSync(filePath)) {
-      return NextResponse.json([]);
+    const { blobs } = await list({ prefix: BLOB_PATH });
+    if (blobs.length === 0) {
+      return NextResponse.json([]); // Return array kosong jika belum ada data
     }
-    const data = fs.readFileSync(filePath, 'utf-8');
-    return NextResponse.json(JSON.parse(data));
+    
+    const response = await fetch(blobs[0].url);
+    const data = await response.json();
+    return NextResponse.json(data);
   } catch (error) {
-    return NextResponse.json({ error: 'Gagal membaca basis pengetahuan akademik.' }, { status: 500 });
+    return NextResponse.json({ error: 'Gagal mengambil basis pengetahuan dari cloud.' }, { status: 500 });
   }
 }
 
-// 2. POST: Menerima data baru/perubahan dari UI Admin dan menyimpannya ke file JSON
+// 2. POST: Menyimpan data baru ke Vercel Blob
 export async function POST(req) {
   try {
     const updatedData = await req.json();
     
-    // Menuliskan kembali seluruh perubahan ke berkas data/knowledge.json
-    fs.writeFileSync(filePath, JSON.stringify(updatedData, null, 2), 'utf-8');
+    // Upload/Timpa file di Vercel Blob dengan data baru
+    // Kita gunakan { access: 'public', token: ... } secara otomatis 
+    // akan menggunakan BLOB_READ_WRITE_TOKEN dari environment variable
+    await put(BLOB_PATH, JSON.stringify(updatedData, null, 2), {
+      access: 'public',
+      contentType: 'application/json',
+      addRandomSuffix: false, // Penting: agar namanya tetap knowledge.json
+    });
     
-    return NextResponse.json({ success: true, message: 'Basis pengetahuan SSC berhasil diperbarui!' });
+    return NextResponse.json({ success: true, message: 'Basis pengetahuan SSC berhasil diperbarui di Cloud!' });
   } catch (error) {
-    return NextResponse.json({ error: 'Gagal menyimpan perubahan data ke berkas lokal.' }, { status: 500 });
+    console.error("Blob Upload Error:", error);
+    return NextResponse.json({ error: 'Gagal menyimpan data ke Vercel Blob.' }, { status: 500 });
   }
 }
