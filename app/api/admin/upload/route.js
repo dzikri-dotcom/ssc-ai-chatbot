@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { put, list, del } from '@vercel/blob';
 import pdfParse from 'pdf-parse';
 
+// Menambah durasi maksimal fungsi agar tidak timeout saat memproses PDF besar
+export const maxDuration = 60; 
+
 const ALLOWED_CATEGORIES = [
   'surat-aktif-mahasiswa',
   'alur-peminjaman-puti-1',
@@ -37,41 +40,58 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Input tidak valid.' }, { status: 400 });
     }
 
+    // 1. Persiapan Data
     const buffer = Buffer.from(await file.arrayBuffer());
     const parsed = await pdfParse(buffer);
     const chunks = chunkText(parsed.text.replace(/\n{3,}/g, '\n\n').trim());
 
-    // 1. Hapus PDF lama di Vercel Blob (prefix kategori)
+    // 2. Hapus file PDF lama di Vercel Blob dengan prefix kategori yang sama
     const { blobs } = await list({ prefix: `${category}__` });
     for (const blob of blobs) {
       await del(blob.url);
     }
 
-    // 2. Upload PDF baru ke Vercel Blob
+    // 3. Upload PDF baru ke Vercel Blob
     const safeName = `${category}__${file.name.replace(/\s+/g, '_')}`;
-    const pdfBlob = await put(safeName, buffer, { access: 'public' });
+    await put(safeName, buffer, { access: 'public' });
 
-    // 3. Update knowledge.json di Vercel Blob
+    // 4. Update knowledge.json di Vercel Blob
     const jsonBlobList = await list({ prefix: 'knowledge.json' });
     let knowledge = { updatedAt: new Date().toISOString(), documents: [] };
     
+    // Jika file sudah ada, ambil isinya
     if (jsonBlobList.blobs.length > 0) {
-      const res = await fetch(jsonBlobList.blobs[0].url);
-      knowledge = await res.json();
+      try {
+        const res = await fetch(jsonBlobList.blobs[0].url);
+        if (res.ok) {
+          knowledge = await res.json();
+        }
+      } catch (fetchErr) {
+        console.error("Gagal fetch knowledge.json:", fetchErr);
+      }
     }
 
+    // Buat entry baru
     const newEntry = {
-      category, categoryLabel, source: safeName, 
+      category, 
+      categoryLabel, 
+      source: safeName, 
       uploadedAt: new Date().toISOString(),
-      pageCount: parsed.numpages, chunkCount: chunks.length,
+      pageCount: parsed.numpages, 
+      chunkCount: chunks.length,
       chunks: chunks.map((text, i) => ({ id: `${safeName}-chunk-${i}`, text })),
     };
 
+    // Update atau tambah ke array documents
     const idx = knowledge.documents.findIndex((d) => d.category === category);
-    idx >= 0 ? (knowledge.documents[idx] = newEntry) : knowledge.documents.push(newEntry);
+    if (idx >= 0) {
+      knowledge.documents[idx] = newEntry;
+    } else {
+      knowledge.documents.push(newEntry);
+    }
     knowledge.updatedAt = new Date().toISOString();
 
-    // Simpan knowledge.json kembali ke Blob
+    // 5. Simpan kembali knowledge.json ke Vercel Blob
     await put('knowledge.json', JSON.stringify(knowledge, null, 2), {
       access: 'public',
       contentType: 'application/json',
@@ -79,8 +99,11 @@ export async function POST(request) {
     });
 
     return NextResponse.json({ success: true, file: safeName, chunks: chunks.length });
+
   } catch (err) {
     console.error('[Upload Fatal Error]:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Gagal memproses file: ' + err.message 
+    }, { status: 500 });
   }
 }
