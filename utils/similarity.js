@@ -1,5 +1,4 @@
-import fs from 'fs';
-import path from 'path';
+import { list } from '@vercel/blob';
 
 function tokenize(text) {
   return text
@@ -26,31 +25,50 @@ function calculateCosine(vecA, vecB) {
   return dotProduct / (Math.sqrt(magnitudeA) * Math.sqrt(magnitudeB));
 }
 
-export function getRelevantContext(query, topK = 2) {
-  const filePath = path.join(process.cwd(), 'data/knowledge.json');
-  if (!fs.existsSync(filePath)) return [];
-  
-  const knowledgeBase = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-  const queryTokens = tokenize(query);
-  
-  const queryVector = {};
-  queryTokens.forEach(token => {
-    queryVector[token] = (queryVector[token] || 0) + 1;
-  });
+// Fungsi ini harus bersifat ASYNC karena sekarang mengambil data dari internet
+export async function getRelevantContext(query, topK = 2) {
+  try {
+    // 1. Ambil list file di Blob untuk mencari knowledge.json
+    const { blobs } = await list({ prefix: 'knowledge.json' });
+    if (blobs.length === 0) return [];
 
-  const scoredChunks = knowledgeBase.map(chunk => {
-    const chunkTokens = tokenize(chunk.text + " " + chunk.title);
-    const chunkVector = {};
-    chunkTokens.forEach(token => {
-      chunkVector[token] = (chunkVector[token] || 0) + 1;
+    // 2. Ambil konten JSON langsung dari URL Blob
+    const response = await fetch(blobs[0].url);
+    const knowledgeBase = await response.json();
+    
+    // Asumsi: knowledgeBase.documents adalah array dari data yang kamu upload
+    // Kamu mungkin perlu menyesuaikan strukturnya dengan data yang tersimpan
+    const allChunks = [];
+    knowledgeBase.documents.forEach(doc => {
+      doc.chunks.forEach(chunk => {
+        allChunks.push({ text: chunk.text, title: doc.categoryLabel, source: doc.source });
+      });
     });
 
-    const score = calculateCosine(queryVector, chunkVector);
-    return { ...chunk, score };
-  });
+    const queryTokens = tokenize(query);
+    const queryVector = {};
+    queryTokens.forEach(token => {
+      queryVector[token] = (queryVector[token] || 0) + 1;
+    });
 
-  return scoredChunks
-    .filter(item => item.score > 0.04)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topK);
+    const scoredChunks = allChunks.map(chunk => {
+      const chunkTokens = tokenize(chunk.text + " " + chunk.title);
+      const chunkVector = {};
+      chunkTokens.forEach(token => {
+        chunkVector[token] = (chunkVector[token] || 0) + 1;
+      });
+
+      const score = calculateCosine(queryVector, chunkVector);
+      return { ...chunk, score };
+    });
+
+    return scoredChunks
+      .filter(item => item.score > 0.04)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topK);
+
+  } catch (error) {
+    console.error("Gagal mengambil context dari Blob:", error);
+    return [];
+  }
 }
