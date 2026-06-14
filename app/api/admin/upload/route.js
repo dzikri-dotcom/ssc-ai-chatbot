@@ -80,6 +80,7 @@ export async function POST(request) {
 
     return NextResponse.json({ success: true, file: safeName, chunks: chunks.length });
   } catch (err) {
+    console.error('[Upload Fatal Error]:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
