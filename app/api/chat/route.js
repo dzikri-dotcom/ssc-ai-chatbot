@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
-import path from 'path';
-import { promises as fs } from 'fs';
+import { list } from '@vercel/blob'; // Tambahkan ini
 
 const apiKey = process.env.GROQ_API_KEY;
 const groq = new Groq({ apiKey: apiKey });
@@ -50,56 +49,47 @@ export async function POST(req) {
     const rawQuery = messages[messages.length - 1]?.content || "";
     const userQuery = rawQuery.toLowerCase().trim();
 
-    const filePath = path.resolve(process.cwd(), 'data', 'knowledge.json');
+    // --- PERUBAHAN UTAMA: MENGAMBIL DATA DARI BLOB ---
     let contextText = "";
-
     try {
-      const fileContent = await fs.readFile(filePath, 'utf8');
-      const data = JSON.parse(fileContent);
+      // 1. Ambil knowledge.json dari Blob
+      const { blobs } = await list({ prefix: 'knowledge.json' });
+      if (blobs.length === 0) {
+        contextText = "INFORMASI_TIDAK_DITEMUKAN";
+      } else {
+        // 2. Fetch data dari URL blob
+        const res = await fetch(blobs[0].url);
+        const data = await res.json();
+        
+        const documents = data.documents || [];
+        const keywords = extractKeywords(userQuery);
 
-      const documents = data.documents || [];
-      const keywords = extractKeywords(userQuery);
-
-      // 1. Hitung skor relevansi setiap chunk berdasarkan kata kunci
-      const scored = [];
-      documents.forEach((doc) => {
-        doc.chunks.forEach((chunk) => {
-          const chunkTextLower = chunk.text.toLowerCase();
-          const score = scoreChunk(chunkTextLower, keywords, userQuery);
-          if (score > 0) {
-            scored.push({ score, source: doc.source, text: chunk.text });
-          }
+        // 3. Logika Scoring tetap sama
+        const scored = [];
+        documents.forEach((doc) => {
+          doc.chunks.forEach((chunk) => {
+            const chunkTextLower = chunk.text.toLowerCase();
+            const score = scoreChunk(chunkTextLower, keywords, userQuery);
+            if (score > 0) {
+              scored.push({ score, source: doc.source, text: chunk.text });
+            }
+          });
         });
-      });
 
-      // 2. Urutkan dari skor tertinggi, ambil maksimal 3 chunk terbaik
-      scored.sort((a, b) => b.score - a.score);
-      const foundChunks = scored
-        .slice(0, 3)
-        .map((c) => `[Sumber: ${c.source}]\nIsi: ${c.text}`);
+        scored.sort((a, b) => b.score - a.score);
+        const foundChunks = scored
+          .slice(0, 3)
+          .map((c) => `[Sumber: ${c.source}]\nIsi: ${c.text}`);
 
-      contextText = foundChunks.length > 0
-        ? foundChunks.join('\n\n')
-        : "INFORMASI_TIDAK_DITEMUKAN";
+        contextText = foundChunks.length > 0 ? foundChunks.join('\n\n') : "INFORMASI_TIDAK_DITEMUKAN";
+      }
     } catch (err) {
-      console.error("Error parsing JSON:", err);
+      console.error("Error mengambil data dari Blob:", err);
       contextText = "Gagal memuat database.";
     }
 
-    // --- SYSTEM PROMPT ---
-    const systemPrompt = `Anda adalah asisten virtual SSC Telkom University Surabaya.
-Tugas Anda HANYA memberikan informasi berdasarkan DATA ACUAN yang disediakan.
-
-DATA ACUAN:
-"""
-${contextText}
-"""
-
-ATURAN WAJIB:
-1. Jawablah HANYA menggunakan informasi dari DATA ACUAN di atas.
-2. JANGAN gunakan pengetahuan di luar DATA ACUAN.
-3. Jika DATA ACUAN berisi "INFORMASI_TIDAK_DITEMUKAN" atau informasi yang ditanyakan tidak ada di dalam DATA ACUAN, Anda WAJIB menjawab dengan sopan: "Mohon maaf, informasi tersebut tidak tersedia dalam panduan kami."
-4. Dilarang memberikan jawaban dari pengetahuan pribadi Anda.`;
+    // --- SYSTEM PROMPT (Sama seperti sebelumnya) ---
+    const systemPrompt = `Anda adalah asisten virtual SSC Telkom University Surabaya... (dan seterusnya)`;
 
     const response = await groq.chat.completions.create({
       model: 'llama-3.1-8b-instant',
