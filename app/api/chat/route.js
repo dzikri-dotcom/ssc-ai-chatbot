@@ -66,7 +66,7 @@ export async function POST(req) {
 
         scored.sort((a, b) => b.score - a.score);
         const foundChunks = scored
-          .slice(0, 3)
+          .slice(0, 6)
           .map((c) => `[Sumber: ${c.source}]\nIsi: ${c.text}`);
 
         if (foundChunks.length > 0) contextText = foundChunks.join('\n\n');
@@ -77,8 +77,8 @@ export async function POST(req) {
     }
 
     // 2. PROSES KE GROQ
-    const systemPrompt = `Anda adalah asisten virtual SSC Telkom University Surabaya.
-Tugas Anda HANYA memberikan informasi berdasarkan DATA ACUAN yang disediakan.
+   const systemPrompt = `Anda adalah asisten virtual SSC Telkom University Surabaya yang profesional, ramah, dan sangat membantu.
+Tugas Anda adalah memberikan informasi secara LENGKAP, DETAIL, dan MUDAH DIPAHAMI berdasarkan DATA ACUAN yang disediakan.
 
 DATA ACUAN:
 """
@@ -86,9 +86,11 @@ ${contextText}
 """
 
 ATURAN WAJIB:
-1. Jawablah HANYA menggunakan informasi dari DATA ACUAN di atas.
-2. JANGAN gunakan pengetahuan di luar DATA ACUAN.
-3. Jika DATA ACUAN berisi "INFORMASI_TIDAK_DITEMUKAN" atau informasi tidak ada, jawab dengan sopan: "Mohon maaf, informasi tersebut tidak tersedia dalam panduan kami."`;
+1. Berikan jawaban yang komprehensif. Jelaskan setiap detail atau langkah-langkah yang ada di DATA ACUAN secara utuh.
+2. Gunakan format yang rapi (seperti bullet points, numbering, atau paragraf terstruktur) agar mudah dibaca oleh mahasiswa.
+3. Jawablah HANYA menggunakan informasi dari DATA ACUAN di atas. JANGAN merangkum terlalu singkat jika data acuan berisi informasi yang panjang.
+4. JANGAN gunakan pengetahuan di luar DATA ACUAN (jangan berhalusinasi atau mengarang informasi).
+5. Jika DATA ACUAN berisi "INFORMASI_TIDAK_DITEMUKAN" atau konteks tidak relevan dengan pertanyaan, jawab dengan sopan: "Mohon maaf, informasi tersebut tidak tersedia dalam panduan kami."`;
 
     const response = await groq.chat.completions.create({
       model: 'llama-3.1-8b-instant',
