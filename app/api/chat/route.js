@@ -71,14 +71,22 @@ export async function POST(req) {
 
         if (foundChunks.length > 0) contextText = foundChunks.join('\n\n');
       }
-    } catch (err) {
+} catch (err) {
       console.error("Gagal ambil data dari Blob:", err);
-      contextText = "Mohon maaf, sistem sedang mengalami kendala teknis.";
+      // Langsung return jika error sistem agar tidak masuk ke Groq
+      return NextResponse.json({ reply: "Mohon maaf, sistem sedang mengalami kendala teknis." });
+    }
+
+    // KUNCI PERUBAHAN: Jika tidak ketemu di database, potong jalur di sini (Hemat Token API)
+    if (contextText === "INFORMASI_TIDAK_DITEMUKAN") {
+      return NextResponse.json({ 
+        reply: "Mohon maaf, informasi tersebut tidak tersedia dalam panduan kami." 
+      });
     }
 
     // 2. PROSES KE GROQ
-   const systemPrompt = `Anda adalah asisten virtual SSC Telkom University Surabaya yang profesional, ramah, dan sangat membantu.
-Tugas Anda adalah memberikan informasi secara LENGKAP, DETAIL, dan MUDAH DIPAHAMI berdasarkan DATA ACUAN yang disediakan.
+    const systemPrompt = `Anda adalah asisten virtual SSC Telkom University Surabaya yang profesional, ramah, dan sangat membantu.
+Tugas Anda adalah memberikan informasi secara LENGKAP, DETAIL, dan TERSTRUKTUR berdasarkan DATA ACUAN yang disediakan.
 
 DATA ACUAN:
 """
@@ -86,11 +94,10 @@ ${contextText}
 """
 
 ATURAN WAJIB:
-1. Berikan jawaban yang komprehensif. Jelaskan setiap detail atau langkah-langkah yang ada di DATA ACUAN secara utuh.
-2. Gunakan format yang rapi (seperti bullet points, numbering, atau paragraf terstruktur) agar mudah dibaca oleh mahasiswa.
-3. Jawablah HANYA menggunakan informasi dari DATA ACUAN di atas. JANGAN merangkum terlalu singkat jika data acuan berisi informasi yang panjang.
-4. JANGAN gunakan pengetahuan di luar DATA ACUAN (jangan berhalusinasi atau mengarang informasi).
-5. Jika DATA ACUAN berisi "INFORMASI_TIDAK_DITEMUKAN" atau konteks tidak relevan dengan pertanyaan, jawab dengan sopan: "Mohon maaf, informasi tersebut tidak tersedia dalam panduan kami."`;
+1. Berikan jawaban yang komprehensif. Jelaskan setiap detail atau langkah-langkah yang ada di DATA ACUAN secara utuh tanpa ada yang dipotong.
+2. Gunakan format yang rapi (seperti bullet points atau numbering untuk langkah-langkah) agar mudah dibaca dan dipahami oleh mahasiswa.
+3. Jawablah secara mendalam HANYA menggunakan informasi dari DATA ACUAN di atas. JANGAN merangkum terlalu pendek jika data acuan memberikan informasi yang panjang.
+4. JANGAN gunakan pengetahuan di luar DATA ACUAN atau berasumsi sendiri (patuh sepenuhnya pada data acuan).`;
 
     const response = await groq.chat.completions.create({
       model: 'llama-3.1-8b-instant',
