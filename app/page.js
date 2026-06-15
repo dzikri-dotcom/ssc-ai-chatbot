@@ -111,7 +111,7 @@ export default function LandingPage() {
           <div className="lg:col-span-7 text-left space-y-6">
             <div className="inline-flex items-center gap-2 bg-gradient-to-r from-[#CC0000]/10 to-[#FFB800]/10 border border-[#CC0000]/30 text-[#FFB800] text-[11px] font-extrabold px-4 py-2 rounded-full tracking-wider uppercase backdrop-blur-sm animate-pulse">
               <Sparkles size={12} className="text-[#CC0000]" />
-              AI-Powered Virtual Assistant &middot; Aktif 24 Jam
+              AI-Powered Virtual Assistant &middot; Aktif 24/7
             </div>
 
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-black text-white tracking-tight leading-[1.08]">

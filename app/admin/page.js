@@ -172,7 +172,7 @@ export default function AdminDashboard() {
             <p className="text-sm text-slate-400 mt-2 font-medium">Ekstrak PDF menjadi basis pengetahuan terpusat chatbot SSC.</p>
           </div>
           <span className="bg-[#151E2E] text-slate-300 border border-slate-700 text-[10px] font-black tracking-widest uppercase px-3 py-1.5 rounded-lg shadow-sm">
-            Mode Admin
+          Admin
           </span>
         </div>
 

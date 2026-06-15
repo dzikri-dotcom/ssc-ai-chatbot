@@ -161,9 +161,9 @@ export default function LoginPage() {
           <div className="my-auto py-6">
             <div className="mb-10 space-y-1">
               <span className="text-xs font-bold text-[#D63030] tracking-widest uppercase block">{greeting}, Admin</span>
-              <h1 className="text-4xl font-black text-white tracking-tighter uppercase">
-                Masuk Dashboard<span className="text-[#CC0000]">.</span>
-              </h1>
+<h1 className="text-4xl font-black text-white tracking-tighter uppercase">
+  Masuk ke Admin Panel<span className="text-[#CC0000]">.</span>
+</h1>
               <p className="text-slate-400 text-sm font-medium pt-1">
                 Silakan isi kredensial otoritas Anda untuk memverifikasi hak akses log data.
               </p>
