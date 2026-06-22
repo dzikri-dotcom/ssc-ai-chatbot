@@ -3,7 +3,7 @@ import Groq from 'groq-sdk';
 import { list } from '@vercel/blob';
 
 const apiKey = process.env.GROQ_API_KEY;
-const groq = new Groq({ apiKey: apiKey });
+const groq = new Groq({ apiKey });
 
 const STOPWORDS = new Set([
   'bagaimana', 'cara', 'untuk', 'dengan', 'yang', 'adalah', 'apa', 'apakah',
@@ -14,103 +14,210 @@ const STOPWORDS = new Set([
   'membuat', 'buat', 'tolong', 'mohon', 'jelaskan', 'tentang', 'mengenai',
   'jika', 'kalau', 'maka', 'agar', 'supaya', 'serta', 'juga', 'lalu', 'kemudian',
   'sebagai', 'oleh', 'dalam', 'tidak', 'ya', 'tanya', 'pertanyaan', 'info',
-  'informasi', 'gimana', 'gmn', 'min', 'kak', 'dong', 'ya',
+  'informasi', 'gimana', 'gmn', 'min', 'kak', 'dong'
 ]);
 
-function extractKeywords(text) {
+function normalizeText(text = '') {
   return text
     .toLowerCase()
+    .replace(/https?:\/\/\S+/g, ' ')
     .replace(/[^a-z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-function scoreChunk(chunkTextLower, keywords, fullQueryLower) {
+function extractKeywords(text = '') {
+  return normalizeText(text)
+    .split(' ')
+    .filter((word) => word.length >= 3 && !STOPWORDS.has(word));
+}
+
+function scoreChunk(chunkText = '', query = '') {
+  const normalizedChunk = normalizeText(chunkText);
+  const normalizedQuery = normalizeText(query);
+  const keywords = extractKeywords(query);
+
   let score = 0;
-  for (const kw of keywords) {
-    if (chunkTextLower.includes(kw)) score += 1;
+
+  // Cocok keyword satu per satu
+  for (const keyword of keywords) {
+    if (normalizedChunk.includes(keyword)) {
+      score += 2;
+    }
   }
-  if (fullQueryLower.length > 2 && chunkTextLower.includes(fullQueryLower)) {
-    score += 5;
+
+  // Cocok frasa penuh
+  if (normalizedQuery.length > 5 && normalizedChunk.includes(normalizedQuery)) {
+    score += 10;
   }
-  return score;
+
+  // Bonus kalau beberapa keyword muncul dalam chunk yang sama
+  const matchedKeywords = keywords.filter((keyword) =>
+    normalizedChunk.includes(keyword)
+  );
+
+  if (matchedKeywords.length >= 2) {
+    score += matchedKeywords.length * 2;
+  }
+
+  // Penalti kalau terlalu sedikit kata yang cocok
+  const matchRatio = keywords.length > 0 ? matchedKeywords.length / keywords.length : 0;
+
+  return {
+    score,
+    matchRatio,
+    matchedKeywords
+  };
+}
+
+async function getKnowledgeContext(userQuery) {
+  const { blobs } = await list({ prefix: 'knowledge.json' });
+
+  if (!blobs || blobs.length === 0) {
+    return {
+      found: false,
+      contextText: '',
+      reason: 'knowledge.json tidak ditemukan di Vercel Blob.'
+    };
+  }
+
+  const response = await fetch(blobs[0].url, {
+    cache: 'no-store'
+  });
+
+  if (!response.ok) {
+    return {
+      found: false,
+      contextText: '',
+      reason: 'Gagal mengambil knowledge.json.'
+    };
+  }
+
+  const data = await response.json();
+  const documents = data.documents || [];
+
+  const scoredChunks = [];
+
+  for (const doc of documents) {
+    const chunks = doc.chunks || [];
+
+    for (const chunk of chunks) {
+      const chunkText = chunk.text || '';
+      const result = scoreChunk(chunkText, userQuery);
+
+      if (result.score > 0) {
+        scoredChunks.push({
+          score: result.score,
+          matchRatio: result.matchRatio,
+          matchedKeywords: result.matchedKeywords,
+          source: doc.source || 'Tidak diketahui',
+          text: chunkText
+        });
+      }
+    }
+  }
+
+  scoredChunks.sort((a, b) => b.score - a.score);
+
+  // Ambang batas agar tidak asal ambil chunk yang cuma cocok 1 kata umum
+  const relevantChunks = scoredChunks.filter((chunk) => {
+    return chunk.score >= 4 || chunk.matchRatio >= 0.4;
+  });
+
+  if (relevantChunks.length === 0) {
+    return {
+      found: false,
+      contextText: '',
+      reason: 'Tidak ada chunk yang relevan.'
+    };
+  }
+
+  const contextText = relevantChunks
+    .slice(0, 8)
+    .map((chunk, index) => {
+      return `[Data ${index + 1}]
+Sumber: ${chunk.source}
+Kata cocok: ${chunk.matchedKeywords.join(', ')}
+Isi:
+${chunk.text}`;
+    })
+    .join('\n\n---\n\n');
+
+  return {
+    found: true,
+    contextText,
+    reason: 'Data relevan ditemukan.'
+  };
 }
 
 export async function POST(req) {
   try {
-    const { messages } = await req.json();
-    const rawQuery = messages[messages.length - 1]?.content || "";
-    const userQuery = rawQuery.toLowerCase().trim();
+    const body = await req.json();
+    const messages = body.messages || [];
 
-    // 1. MENGAMBIL DATA DARI CLOUD (VERCEL BLOB)
-    let contextText = "INFORMASI_TIDAK_DITEMUKAN";
-    try {
-      const { blobs } = await list({ prefix: 'knowledge.json' });
-      if (blobs.length > 0) {
-        // Fetch langsung ke URL Blob tanpa menggunakan fs
-        const response = await fetch(blobs[0].url);
-        const data = await response.json();
-        const documents = data.documents || [];
-        const keywords = extractKeywords(userQuery);
+    const rawQuery = messages[messages.length - 1]?.content || '';
+    const userQuery = rawQuery.trim();
 
-        const scored = [];
-        documents.forEach((doc) => {
-          doc.chunks.forEach((chunk) => {
-            const chunkTextLower = chunk.text.toLowerCase();
-            const score = scoreChunk(chunkTextLower, keywords, userQuery);
-            if (score > 0) {
-              scored.push({ score, source: doc.source, text: chunk.text });
-            }
-          });
-        });
-
-        scored.sort((a, b) => b.score - a.score);
-        const foundChunks = scored
-          .slice(0, 6)
-          .map((c) => `[Sumber: ${c.source}]\nIsi: ${c.text}`);
-
-        if (foundChunks.length > 0) contextText = foundChunks.join('\n\n');
-      }
-} catch (err) {
-      console.error("Gagal ambil data dari Blob:", err);
-      // Langsung return jika error sistem agar tidak masuk ke Groq
-      return NextResponse.json({ reply: "Mohon maaf, sistem sedang mengalami kendala teknis." });
-    }
-
-    // KUNCI PERUBAHAN: Jika tidak ketemu di database, potong jalur di sini (Hemat Token API)
-    if (contextText === "INFORMASI_TIDAK_DITEMUKAN") {
-      return NextResponse.json({ 
-        reply: "Mohon maaf, informasi tersebut tidak tersedia dalam panduan kami." 
+    if (!userQuery) {
+      return NextResponse.json({
+        reply: 'Silakan tuliskan pertanyaan terlebih dahulu.'
       });
     }
 
-    // 2. PROSES KE GROQ
+    const knowledge = await getKnowledgeContext(userQuery);
 
-    const systemPrompt = `Anda adalah asisten virtual SSC Telkom University Surabaya yang profesional.
-Tugas Anda adalah memberikan informasi secara LENGKAP dan TERSTRUKTUR berdasarkan DATA ACUAN yang disediakan.
+    if (!knowledge.found) {
+      return NextResponse.json({
+        reply: 'Mohon maaf, informasi tersebut tidak tersedia dalam panduan kami.'
+      });
+    }
+
+    const systemPrompt = `
+Anda adalah SSC Virtual Assistant Telkom University Surabaya.
+
+Tugas utama:
+Menjawab pertanyaan user berdasarkan DATA ACUAN yang diberikan.
 
 DATA ACUAN:
 """
-${contextText}
+${knowledge.contextText}
 """
 
-ATURAN WAJIB (SANGAT KETAT):
-1. Evaluasi dulu: Apakah DATA ACUAN membahas TOPIK SPESIFIK yang ditanyakan user? 
-2. Jika user menanyakan topik spesifik (misalnya: "TAK", "KTM", dsb) dan kata/topik tersebut TIDAK ADA di DATA ACUAN, Anda WAJIB langsung menjawab persis seperti ini: "Mohon maaf, informasi tersebut tidak tersedia dalam panduan kami."
-3. JANGAN mencoba menebak, JANGAN beralasan "saya tidak paham", dan JANGAN menawarkan informasi lain meskipun ada kata kerja yang kebetulan sama (seperti "upload", "surat", atau "buat"). Langsung tolak jika topiknya berbeda.
-4. Jika topiknya BENAR dan RELEVAN, berikan jawaban yang komprehensif, jangan potong langkah-langkahnya, dan gunakan format rapi (bullet points/numbering).
-5. DILARANG KERAS menggunakan pengetahuan di luar DATA ACUAN.`;
+ATURAN JAWABAN:
+1. Jawab hanya berdasarkan DATA ACUAN.
+2. Jika DATA ACUAN memang membahas topik pertanyaan user, berikan jawaban yang jelas, lengkap, dan terstruktur.
+3. Jika user bertanya dengan bahasa santai, typo, atau tidak lengkap, tetap pahami maksudnya selama masih berhubungan dengan DATA ACUAN.
+4. Jangan menolak hanya karena kata-kata user tidak sama persis dengan DATA ACUAN.
+5. Jika DATA ACUAN tidak cukup untuk menjawab detail tertentu, katakan bagian yang tidak tersedia.
+6. Jangan mengarang informasi di luar DATA ACUAN.
+7. Jangan menyebut "berdasarkan data acuan" secara berlebihan.
+8. Gunakan bahasa Indonesia yang rapi dan mudah dipahami.
+9. Jika berisi prosedur, gunakan langkah bernomor.
+10. Jika ada link dalam DATA ACUAN, tampilkan link tersebut apa adanya.
+`;
 
-    const response = await groq.chat.completions.create({
+    const completion = await groq.chat.completions.create({
       model: 'llama-3.1-8b-instant',
-      messages: [{ role: 'system', content: systemPrompt }, ...messages.slice(-6)],
-      temperature: 0.1,
-      max_tokens: 1024,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userQuery }
+      ],
+      temperature: 0,
+      max_tokens: 1600
     });
 
-    return NextResponse.json({ reply: response.choices[0].message.content });
+    return NextResponse.json({
+      reply: completion.choices[0]?.message?.content || 'Mohon maaf, jawaban tidak dapat dibuat.'
+    });
+
   } catch (error) {
-    console.error("Chat Error:", error);
-    return NextResponse.json({ reply: "Terjadi kesalahan internal." }, { status: 500 });
+    console.error('Chat Error:', error);
+
+    return NextResponse.json(
+      {
+        reply: 'Terjadi kesalahan internal pada sistem.'
+      },
+      { status: 500 }
+    );
   }
 }
