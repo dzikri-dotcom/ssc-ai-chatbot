@@ -46,7 +46,7 @@ const FEATURES = [
 
 const STATS = [
   { value: '24/7', label: 'Asisten Siap Siaga' },
-  { value: 'Instant', label: 'Respon Kecerdasan Buatan' },
+  { value: 'Efisien', label: 'Respon Cepat berbasis AI' },
   { value: '100%', label: 'Terintegrasi ' },
 ];
 
@@ -97,7 +97,7 @@ export default function LandingPage() {
               className="flex items-center gap-2 bg-gradient-to-r from-slate-900 to-slate-800 border border-slate-700 hover:border-[#CC0000] text-slate-200 text-xs font-extrabold px-5 py-2.5 rounded-xl transition-all duration-300 shadow-sm hover:shadow-red-900/20"
             >
               <LogIn size={14} className="text-[#CC0000]" />
-              Login Portal Admin
+              Login Admin
             </Link>
           </div>
         </div>
@@ -115,14 +115,14 @@ export default function LandingPage() {
             </div>
 
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-black text-white tracking-tight leading-[1.08]">
-              Navigasi Layanan <br />
+              Layanan Student Service Center <br />
               <span className="bg-gradient-to-r from-[#CC0000] via-[#FF3333] to-[#FFB800] bg-clip-text text-transparent">
-                SSC Jadi Lebih Pintar
+                Telkom University Surabaya
               </span>
             </h1>
 
             <p className="text-slate-400 text-sm sm:text-base max-w-xl leading-relaxed font-medium">
-              Sistem asisten pintar berbasis kecerdasan buatan dirancang khusus untuk mempermudah civitas akademika Telkom University Surabaya dalam memproses administrasi surat-menyurat, validasi TOSS, hingga peminjaman fasilitas logistik secara instan.
+              Sistem Chatbot berbasis AI yang dirancang khusus untuk mempermudah civitas akademika Telkom University Surabaya dalam memproses administrasi surat-menyurat, validasi TOSS, hingga peminjaman fasilitas logistik secara cepat dan tepat.
             </p>
 
             {/* CTA Buttons */}
@@ -209,13 +209,13 @@ export default function LandingPage() {
         <div id="fitur" className="mt-32 w-full relative z-20">
           <div className="text-center max-w-xl mx-auto mb-12">
             <h2 className="text-[11px] font-black uppercase tracking-widest text-[#FFB800] mb-2 bg-amber-500/10 px-3 py-1 rounded-full inline-block">
-              Direktori Integrasi Sistem
+              Pelayanan SSC
             </h2>
             <p className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-              Akselerasi Informasi Layanan Kampus
+              Integrasi Informasi Layanan Kampus
             </p>
             <p className="text-xs text-slate-500 mt-2 font-medium">
-              Asisten Virtual kami dilatih secara intensif memandu Anda melewati ragam framework regulasi birokrasi kampus secara seamless.
+              Asisten Virtual ini dilatih secara intensif untuk memandu Anda melewati regulasi dalam birokrasi kampus secara tepat
             </p>
           </div>
 
