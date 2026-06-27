@@ -1,7 +1,18 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { Upload, FileText, LogOut, Loader2, CheckCircle, X, Info } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  Upload,
+  FileText,
+  LogOut,
+  Loader2,
+  CheckCircle,
+  X,
+  Info,
+  Download,
+  RefreshCw,
+  Trash2
+} from 'lucide-react';
 import Link from 'next/link';
 
 // Daftar kategori dokumen yang bisa diupload.
@@ -45,6 +56,193 @@ const initialDocState = () => ({
   progress: 0,
   progressLabel: '',
 });
+
+function DocumentListAdmin() {
+  const [documents, setDocuments] = useState([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
+  const [deletingPath, setDeletingPath] = useState('');
+
+  const fetchDocuments = async () => {
+    try {
+      setLoadingDocs(true);
+
+      const response = await fetch('/api/admin/documents', {
+        method: 'GET',
+        cache: 'no-store'
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Gagal mengambil daftar dokumen.');
+      }
+
+      setDocuments(Array.isArray(data.documents) ? data.documents : []);
+    } catch (error) {
+      console.error(error);
+      alert(error.message || 'Gagal mengambil daftar dokumen.');
+    } finally {
+      setLoadingDocs(false);
+    }
+  };
+
+  const deleteDocument = async (doc) => {
+    const confirmDelete = window.confirm(
+      `Apakah kamu yakin ingin menghapus dokumen ini?\n\n${doc.fileName}`
+    );
+
+    if (!confirmDelete) return;
+
+    try {
+      setDeletingPath(doc.pathname);
+
+      const response = await fetch('/api/admin/documents', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          url: doc.url,
+          pathname: doc.pathname
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Gagal menghapus dokumen.');
+      }
+
+      setDocuments((prev) => prev.filter((item) => item.pathname !== doc.pathname));
+
+      alert('Dokumen berhasil dihapus.');
+    } catch (error) {
+      console.error(error);
+      alert(error.message || 'Gagal menghapus dokumen.');
+    } finally {
+      setDeletingPath('');
+    }
+  };
+
+  useEffect(() => {
+    fetchDocuments();
+  }, []);
+
+  return (
+    <section className="mt-10 bg-[#151E2E]/80 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 shadow-xl">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div>
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-1.5 bg-red-500/10 rounded-lg">
+              <FileText size={16} className="text-[#CC0000]" />
+            </div>
+            <span className="text-sm font-bold text-slate-200">Dokumen PDF Tersimpan</span>
+          </div>
+          <p className="text-xs text-slate-400 font-medium leading-relaxed">
+            Daftar dokumen PDF yang tersimpan di Vercel Blob. Dokumen ini dapat diunduh atau dihapus dari admin.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={fetchDocuments}
+          disabled={loadingDocs}
+          className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold px-4 py-3 rounded-xl transition-all uppercase tracking-wider disabled:opacity-50"
+        >
+          <RefreshCw size={14} className={loadingDocs ? 'animate-spin' : ''} />
+          Refresh
+        </button>
+      </div>
+
+      {loadingDocs ? (
+        <div className="bg-[#1A2333]/60 border border-slate-800 rounded-xl p-8 text-center">
+          <Loader2 size={28} className="mx-auto mb-3 animate-spin text-[#CC0000]" />
+          <p className="text-sm font-bold text-slate-300">Mengambil daftar dokumen...</p>
+        </div>
+      ) : documents.length === 0 ? (
+        <div className="bg-[#1A2333]/60 border border-dashed border-slate-700 rounded-xl p-8 text-center">
+          <FileText size={34} className="mx-auto mb-3 text-slate-500" />
+          <p className="text-sm font-bold text-slate-300">Belum ada dokumen PDF tersimpan.</p>
+          <p className="text-xs text-slate-500 mt-1">
+            Upload dokumen terlebih dahulu agar muncul di daftar ini.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {documents.map((doc) => (
+            <div
+              key={doc.pathname}
+              className="bg-[#1A2333]/70 border border-slate-800 hover:border-slate-700 rounded-xl p-4 transition-all"
+            >
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                <div className="flex items-start gap-4 min-w-0">
+                  <div className="w-11 h-11 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center justify-center shrink-0">
+                    <FileText size={20} className="text-[#CC0000]" />
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-slate-100 break-words">
+                      {doc.fileName}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-1 break-all font-medium">
+                      {doc.originalName}
+                    </p>
+
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      <span className="bg-slate-800 border border-slate-700 text-slate-300 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest">
+                        PDF
+                      </span>
+                      <span className="bg-slate-800 border border-slate-700 text-slate-300 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest">
+                        {doc.sizeText}
+                      </span>
+                      {doc.uploadedAt && (
+                        <span className="bg-slate-800 border border-slate-700 text-slate-300 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest">
+                          {new Date(doc.uploadedAt).toLocaleString('id-ID')}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 shrink-0">
+                  <a
+                    href={doc.downloadUrl || doc.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    download
+                    className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold px-4 py-3 rounded-xl transition-all uppercase tracking-wider"
+                  >
+                    <Download size={14} />
+                    Download
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => deleteDocument(doc)}
+                    disabled={deletingPath === doc.pathname}
+                    className="flex items-center justify-center gap-2 bg-[#CC0000]/10 border border-[#CC0000]/30 hover:bg-[#CC0000]/20 text-[#CC0000] text-xs font-bold px-4 py-3 rounded-xl transition-all uppercase tracking-wider disabled:opacity-50"
+                  >
+                    {deletingPath === doc.pathname ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        Menghapus
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 size={14} />
+                        Hapus
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
 
 export default function AdminDashboard() {
   const [docs, setDocs] = useState(() =>
@@ -168,11 +366,15 @@ export default function AdminDashboard() {
         {/* Page header */}
         <div className="flex items-start justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-black text-white tracking-tight uppercase">Upload Dokumen <span className="text-[#CC0000]">Panduan</span></h1>
-            <p className="text-sm text-slate-400 mt-2 font-medium">Ekstrak PDF menjadi basis pengetahuan terpusat chatbot SSC.</p>
+            <h1 className="text-3xl font-black text-white tracking-tight uppercase">
+              Upload Dokumen <span className="text-[#CC0000]">Panduan</span>
+            </h1>
+            <p className="text-sm text-slate-400 mt-2 font-medium">
+              Ekstrak PDF menjadi basis pengetahuan terpusat chatbot SSC.
+            </p>
           </div>
           <span className="bg-[#151E2E] text-slate-300 border border-slate-700 text-[10px] font-black tracking-widest uppercase px-3 py-1.5 rounded-lg shadow-sm">
-          Admin
+            Admin
           </span>
         </div>
 
@@ -183,7 +385,6 @@ export default function AdminDashboard() {
             return (
               <div key={cat.id} className="bg-[#151E2E]/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl overflow-hidden flex flex-col shadow-2xl relative group hover:border-slate-700 transition-colors">
                 
-                {/* Aksen atas card */}
                 <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[#CC0000]/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
 
                 <div className="px-6 pt-6">
@@ -191,7 +392,6 @@ export default function AdminDashboard() {
                   <p className="text-[11px] font-medium text-slate-500 mt-1">{cat.desc}</p>
                 </div>
 
-                {/* Success banner */}
                 {state.uploadSuccess && (
                   <div className="flex items-center gap-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3 mx-6 mt-4 animate-in fade-in zoom-in duration-300">
                     <CheckCircle size={16} className="text-emerald-400 shrink-0" />
@@ -199,7 +399,6 @@ export default function AdminDashboard() {
                   </div>
                 )}
 
-                {/* Drop zone */}
                 {!state.file && (
                   <div
                     onDragOver={(e) => { e.preventDefault(); updateDoc(cat.id, { dragOver: true }); }}
@@ -228,7 +427,6 @@ export default function AdminDashboard() {
                   </div>
                 )}
 
-                {/* File selected */}
                 {state.file && (
                   <div className="mx-6 my-5 flex items-center gap-4 bg-[#1A2333] border border-slate-700/80 rounded-xl p-3.5 relative overflow-hidden">
                     <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#CC0000]" />
@@ -248,7 +446,6 @@ export default function AdminDashboard() {
                   </div>
                 )}
 
-                {/* Progress */}
                 {state.isUploading && (
                   <div className="mx-6 mb-5">
                     <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">
@@ -266,7 +463,6 @@ export default function AdminDashboard() {
                   </div>
                 )}
 
-                {/* Submit button */}
                 <div className="px-6 pb-6 mt-auto">
                   <button
                     onClick={(e) => handleFileUpload(e, cat)}
@@ -284,8 +480,11 @@ export default function AdminDashboard() {
           })}
         </div>
 
+        {/* Dokumen PDF dari Vercel Blob */}
+        <DocumentListAdmin />
+
         {/* Tips */}
-        <div className="bg-[#151E2E]/80 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 shadow-xl">
+        <div className="bg-[#151E2E]/80 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 shadow-xl mt-8">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-1.5 bg-blue-500/10 rounded-lg">
               <Info size={16} className="text-blue-400" />
@@ -309,7 +508,6 @@ export default function AdminDashboard() {
 
       </main>
 
-      {/* Menambahkan custom keyframes langsung di dalam file untuk animasi shimmer progress bar */}
       <style dangerouslySetInnerHTML={{__html: `
         @keyframes shimmer {
           0% { background-position: -15px 0; }
