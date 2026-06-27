@@ -101,6 +101,20 @@ function normalizeText(text = '') {
     .trim();
 }
 
+function normalizeFileName(text = '') {
+  try {
+    return decodeURIComponent(String(text));
+  } catch {
+    return String(text);
+  }
+}
+
+function cleanFileName(fileName = '') {
+  return String(fileName)
+    .replace(/^.*[\\/]/, '')
+    .trim();
+}
+
 function extractKeywords(text = '') {
   return normalizeText(text)
     .split(' ')
@@ -135,6 +149,27 @@ function detectDifferentKnownTopic(query = '') {
   }
 
   return null;
+}
+
+function isDocumentRequest(query = '') {
+  const normalizedQuery = normalizeText(query);
+
+  const documentKeywords = [
+    'dokumen',
+    'file',
+    'pdf',
+    'panduan',
+    'download',
+    'unduh',
+    'diunduh',
+    'di download',
+    'link',
+    'berkas'
+  ];
+
+  return documentKeywords.some((keyword) => {
+    return normalizedQuery.includes(normalizeText(keyword));
+  });
 }
 
 function scoreChunk(chunkText = '', query = '') {
@@ -175,12 +210,6 @@ function scoreChunk(chunkText = '', query = '') {
 function isChunkRelevant(result, detectedTopic) {
   if (!result) return false;
 
-  /*
-    Sebelumnya terlalu longgar:
-    detectedTopic => score >= 2
-
-    Sekarang diperketat agar chunk dari layanan lain tidak mudah ikut masuk.
-  */
   if (detectedTopic) {
     return result.score >= 6 && result.matchRatio >= 0.35;
   }
@@ -225,6 +254,80 @@ function isDocumentMatchTopic(doc, detectedTopic) {
   return true;
 }
 
+async function listAllBlobs() {
+  const allBlobs = [];
+  let cursor = undefined;
+
+  do {
+    const result = await list({
+      cursor,
+      limit: 1000
+    });
+
+    if (Array.isArray(result.blobs)) {
+      allBlobs.push(...result.blobs);
+    }
+
+    cursor = result.cursor;
+  } while (cursor);
+
+  return allBlobs;
+}
+
+function findBlobUrlBySource(blobs = [], source = '') {
+  if (!source) return '';
+
+  const cleanSource = cleanFileName(source);
+  const normalizedSource = normalizeText(cleanSource);
+
+  const matchedBlob = blobs.find((blob) => {
+    const pathname = normalizeFileName(blob.pathname || '');
+    const url = normalizeFileName(blob.url || '');
+    const blobName = cleanFileName(pathname || url);
+
+    const normalizedPathname = normalizeText(pathname);
+    const normalizedUrl = normalizeText(url);
+    const normalizedBlobName = normalizeText(blobName);
+
+    return (
+      normalizedBlobName === normalizedSource ||
+      normalizedBlobName.includes(normalizedSource) ||
+      normalizedSource.includes(normalizedBlobName) ||
+      normalizedPathname.includes(normalizedSource) ||
+      normalizedUrl.includes(normalizedSource)
+    );
+  });
+
+  return matchedBlob?.url || '';
+}
+
+function makeDownloadName(source = '') {
+  const cleanName = cleanFileName(source);
+
+  const parts = cleanName.split('__');
+
+  if (parts.length > 1) {
+    return parts.slice(1).join('__');
+  }
+
+  return cleanName;
+}
+
+function uniqueDownloads(downloads = []) {
+  const seen = new Set();
+
+  return downloads.filter((item) => {
+    if (!item?.url || !item?.name) return false;
+
+    const key = `${item.name}-${item.url}`;
+
+    if (seen.has(key)) return false;
+
+    seen.add(key);
+    return true;
+  });
+}
+
 async function getKnowledgeContext(userQuery, detectedTopic) {
   const { blobs } = await list({ prefix: 'knowledge.json' });
 
@@ -232,7 +335,8 @@ async function getKnowledgeContext(userQuery, detectedTopic) {
     return {
       found: false,
       contextText: '',
-      reason: 'knowledge.json tidak ditemukan di Vercel Blob.'
+      reason: 'knowledge.json tidak ditemukan di Vercel Blob.',
+      downloads: []
     };
   }
 
@@ -244,20 +348,19 @@ async function getKnowledgeContext(userQuery, detectedTopic) {
     return {
       found: false,
       contextText: '',
-      reason: 'Gagal mengambil knowledge.json.'
+      reason: 'Gagal mengambil knowledge.json.',
+      downloads: []
     };
   }
 
   const data = await response.json();
   const documents = Array.isArray(data.documents) ? data.documents : [];
 
+  const allBlobs = await listAllBlobs();
+
   const scoredChunks = [];
 
   for (const doc of documents) {
-    /*
-      Filter dokumen berdasarkan topik.
-      Ini mencegah pertanyaan Surat Dispensasi mengambil data Surat Rekomendasi Beasiswa.
-    */
     if (!isDocumentMatchTopic(doc, detectedTopic)) {
       continue;
     }
@@ -273,11 +376,15 @@ async function getKnowledgeContext(userQuery, detectedTopic) {
       const result = scoreChunk(searchableText, userQuery);
 
       if (isChunkRelevant(result, detectedTopic)) {
+        const sourceUrl = findBlobUrlBySource(allBlobs, source);
+
         scoredChunks.push({
           score: result.score,
           matchRatio: result.matchRatio,
           matchedKeywords: result.matchedKeywords,
           source,
+          sourceUrl,
+          downloadName: makeDownloadName(source),
           text: chunkText
         });
       }
@@ -293,14 +400,11 @@ async function getKnowledgeContext(userQuery, detectedTopic) {
     return {
       found: false,
       contextText: '',
-      reason: 'Tidak ada chunk yang relevan.'
+      reason: 'Tidak ada chunk yang relevan.',
+      downloads: []
     };
   }
 
-  /*
-    Ambil 5 chunk terbaik saja.
-    Sebelumnya 8 chunk, terlalu banyak dan bisa membuat jawaban melebar.
-  */
   const contextText = scoredChunks
     .slice(0, 5)
     .map((chunk, index) => {
@@ -311,10 +415,23 @@ ${chunk.text}`;
     })
     .join('\n\n---\n\n');
 
+  const downloads = uniqueDownloads(
+    scoredChunks
+      .slice(0, 5)
+      .map((chunk) => {
+        return {
+          name: chunk.downloadName || chunk.source,
+          source: chunk.source,
+          url: chunk.sourceUrl
+        };
+      })
+  );
+
   return {
     found: true,
     contextText,
-    reason: 'Data relevan ditemukan.'
+    reason: 'Data relevan ditemukan.',
+    downloads
   };
 }
 
@@ -355,7 +472,8 @@ export async function POST(req) {
     if (!apiKey) {
       return NextResponse.json(
         {
-          reply: 'Terjadi kesalahan konfigurasi: GROQ_API_KEY belum tersedia.'
+          reply: 'Terjadi kesalahan konfigurasi: GROQ_API_KEY belum tersedia.',
+          downloads: []
         },
         { status: 500 }
       );
@@ -363,15 +481,6 @@ export async function POST(req) {
 
     const body = await req.json();
 
-    /*
-      Frontend kamu mengirim format:
-      {
-        messages: [
-          { role: 'assistant', content: '...' },
-          { role: 'user', content: 'pertanyaan user' }
-        ]
-      }
-    */
     const messages = Array.isArray(body.messages) ? body.messages : [];
 
     const lastUserMessage = [...messages]
@@ -383,7 +492,8 @@ export async function POST(req) {
 
     if (!userQuery) {
       return NextResponse.json({
-        reply: 'Silakan tuliskan pertanyaan terlebih dahulu.'
+        reply: 'Silakan tuliskan pertanyaan terlebih dahulu.',
+        downloads: []
       });
     }
 
@@ -392,7 +502,8 @@ export async function POST(req) {
 
     if (!detectedTopic && differentKnownTopic) {
       return NextResponse.json({
-        reply: 'Mohon maaf, informasi tersebut tidak tersedia dalam panduan kami.'
+        reply: 'Mohon maaf, informasi tersebut tidak tersedia dalam panduan kami.',
+        downloads: []
       });
     }
 
@@ -401,7 +512,8 @@ export async function POST(req) {
       normalizeText(userQuery).includes('logistik')
     ) {
       return NextResponse.json({
-        reply: 'Mohon maaf, informasi tersebut tidak tersedia dalam panduan kami.'
+        reply: 'Mohon maaf, informasi tersebut tidak tersedia dalam panduan kami.',
+        downloads: []
       });
     }
 
@@ -409,7 +521,28 @@ export async function POST(req) {
 
     if (!knowledge.found) {
       return NextResponse.json({
-        reply: 'Mohon maaf, informasi tersebut tidak tersedia dalam panduan kami.'
+        reply: 'Mohon maaf, informasi tersebut tidak tersedia dalam panduan kami.',
+        downloads: []
+      });
+    }
+
+    const userWantsDocument = isDocumentRequest(userQuery);
+
+    if (userWantsDocument) {
+      if (knowledge.downloads.length > 0) {
+        const documentList = knowledge.downloads
+          .map((item, index) => `${index + 1}. ${item.name}`)
+          .join('\n');
+
+        return NextResponse.json({
+          reply: `Dokumen panduan yang sesuai adalah:\n\n${documentList}\n\nSilakan klik tombol download dokumen di bawah ini.`,
+          downloads: knowledge.downloads
+        });
+      }
+
+      return NextResponse.json({
+        reply: 'Dokumen panduan yang sesuai ditemukan, tetapi file PDF belum tersedia sebagai link download di Vercel Blob.',
+        downloads: []
       });
     }
 
@@ -431,7 +564,8 @@ export async function POST(req) {
     const reply = completion.choices[0]?.message?.content?.trim();
 
     return NextResponse.json({
-      reply: reply || 'Mohon maaf, jawaban tidak dapat dibuat.'
+      reply: reply || 'Mohon maaf, jawaban tidak dapat dibuat.',
+      downloads: []
     });
 
   } catch (error) {
@@ -439,7 +573,8 @@ export async function POST(req) {
 
     return NextResponse.json(
       {
-        reply: 'Terjadi kesalahan internal pada sistem.'
+        reply: 'Terjadi kesalahan internal pada sistem.',
+        downloads: []
       },
       { status: 500 }
     );

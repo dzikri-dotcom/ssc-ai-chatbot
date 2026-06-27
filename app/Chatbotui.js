@@ -1,5 +1,5 @@
 'use client';
-import { ArrowLeft, Clock, MessageSquare, Sparkles } from 'lucide-react';
+import { ArrowLeft, Clock, Download, FileText, MessageSquare, Sparkles } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
@@ -46,7 +46,7 @@ function renderInline(line, lineIdx) {
 }
 
 function FormattedMessage({ content }) {
-  const lines = splitIntoLines(content);
+  const lines = splitIntoLines(content || '');
 
   return (
     <div className="space-y-3 text-slate-700 leading-relaxed">
@@ -81,12 +81,52 @@ function FormattedMessage({ content }) {
 }
 
 /* ────────────────────────────────────────────────────────────
+   DOWNLOAD DOKUMEN
+   ──────────────────────────────────────────────────────────── */
+
+function DownloadDocuments({ downloads }) {
+  if (!downloads || downloads.length === 0) return null;
+
+  return (
+    <div className="mt-4 space-y-2 border-t border-slate-200 pt-4">
+      <p className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-slate-500">
+        <FileText size={14} className="text-[#CC0000]" />
+        Dokumen Tersedia
+      </p>
+
+      <div className="flex flex-col gap-2">
+        {downloads.map((file, index) => (
+          <a
+            key={`${file.url}-${index}`}
+            href={file.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            download
+            className="group flex items-center justify-between gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-bold text-[#CC0000] transition-all hover:bg-[#CC0000] hover:text-white hover:shadow-lg hover:shadow-red-500/20"
+          >
+            <span className="flex items-center gap-2 break-all">
+              <FileText size={16} className="shrink-0" />
+              {file.name || 'Download Dokumen'}
+            </span>
+            <Download size={16} className="shrink-0 transition-transform group-hover:translate-y-0.5" />
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────
    KOMPONEN UTAMA
    ──────────────────────────────────────────────────────────── */
 
 export default function ChatbotUI() {
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: 'Halo! Saya asisten virtual SSC Telkom University Surabaya. Ada yang bisa saya bantu terkait layanan SSC hari ini?' }
+    {
+      role: 'assistant',
+      content: 'Halo! Saya asisten virtual SSC Telkom University Surabaya. Ada yang bisa saya bantu terkait layanan SSC hari ini?',
+      downloads: []
+    }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -107,7 +147,12 @@ export default function ChatbotUI() {
     const textToSend = explicitInput || input;
     if (!textToSend.trim()) return;
 
-    const userMessage = { role: 'user', content: textToSend };
+    const userMessage = {
+      role: 'user',
+      content: textToSend,
+      downloads: []
+    };
+
     setMessages(prev => [...prev, userMessage]);
     if (!explicitInput) setInput('');
     setLoading(true);
@@ -124,25 +169,36 @@ export default function ChatbotUI() {
       }
 
       const data = await response.json();
-      setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
+
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: data.reply || 'Mohon maaf, jawaban tidak dapat dibuat.',
+          downloads: Array.isArray(data.downloads) ? data.downloads : []
+        }
+      ]);
     } catch (error) {
       console.error("Error pada fetch /api/chat:", error);
-      setMessages(prev => [...prev, { role: 'assistant', content: `Maaf, terjadi kesalahan koneksi ke server. (${error.message})` }]);
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: `Maaf, terjadi kesalahan koneksi ke server. (${error.message})`,
+          downloads: []
+        }
+      ]);
     }
+
     setLoading(false);
   };
 
   return (
-    // PARENT CONTAINER: Menggunakan flex untuk memusatkan segalanya di tengah layar.
     <div className="h-screen w-full bg-[#0F172A] flex items-center justify-center p-4 overflow-hidden relative font-sans">
       
       {/* Ornamen Ambient Glow */}
       <div className="absolute top-0 left-0 w-[50vw] h-[50vw] rounded-full bg-gradient-to-br from-[#CC0000]/10 to-transparent blur-[120px] pointer-events-none"></div>
 
-      {/* CHAT CONTAINER: 
-          Diberi tinggi dinamis h-[85vh] agar selalu proporsional dan berada di tengah,
-          tanpa menyentuh pinggiran layar (memberikan breathing room).
-      */}
       <div className="w-full max-w-6xl h-[85vh] max-h-[850px] bg-slate-900/40 backdrop-blur-xl rounded-[2rem] shadow-[0_30px_100px_-20px_rgba(0,0,0,0.7)] flex overflow-hidden border border-slate-800/60 z-10">
 
         {/* ── PANEL SIDEBAR KIRI ── */}
@@ -234,10 +290,18 @@ export default function ChatbotUI() {
                   {m.role === 'user' ? 'U' : 'AI'}
                 </div>
                 <div className={`max-w-[80%] px-5 py-4 rounded-2xl text-[14px] ${m.role === 'user' ? 'bg-slate-800 text-white rounded-tr-none' : 'bg-white text-slate-800 rounded-tl-none'}`}>
-                  {m.role === 'assistant' ? <FormattedMessage content={m.content} /> : <p>{m.content}</p>}
+                  {m.role === 'assistant' ? (
+                    <>
+                      <FormattedMessage content={m.content} />
+                      <DownloadDocuments downloads={m.downloads} />
+                    </>
+                  ) : (
+                    <p>{m.content}</p>
+                  )}
                 </div>
               </div>
             ))}
+
             {loading && <div className="text-slate-500 text-xs animate-pulse pl-12">AI sedang mengetik...</div>}
             <div ref={messagesEndRef} />
           </div>
