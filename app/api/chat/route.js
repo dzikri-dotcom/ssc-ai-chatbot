@@ -51,7 +51,9 @@ const ALLOWED_TOPICS = [
       'unit puti',
       'prosedur peminjaman unit puti',
       'peminjaman perangkat puti',
-      'peminjaman barang puti'
+      'peminjaman barang puti',
+      'barang unit puti',
+      'barang puti'
     ]
   },
   {
@@ -173,11 +175,54 @@ function scoreChunk(chunkText = '', query = '') {
 function isChunkRelevant(result, detectedTopic) {
   if (!result) return false;
 
+  /*
+    Sebelumnya terlalu longgar:
+    detectedTopic => score >= 2
+
+    Sekarang diperketat agar chunk dari layanan lain tidak mudah ikut masuk.
+  */
   if (detectedTopic) {
-    return result.score >= 2;
+    return result.score >= 6 && result.matchRatio >= 0.35;
   }
 
-  return result.score >= 6 && result.matchRatio >= 0.5;
+  return result.score >= 8 && result.matchRatio >= 0.5;
+}
+
+function isDocumentMatchTopic(doc, detectedTopic) {
+  if (!detectedTopic) return true;
+
+  const source = normalizeText(doc?.source || '');
+  const category = normalizeText(doc?.category || '');
+  const label = normalizeText(doc?.categoryLabel || '');
+  const combined = `${source} ${category} ${label}`;
+
+  if (detectedTopic.name === 'surat keterangan aktif mahasiswa') {
+    return (
+      combined.includes('aktif mahasiswa') ||
+      combined.includes('surat aktif')
+    );
+  }
+
+  if (detectedTopic.name === 'surat dispensasi') {
+    return combined.includes('dispensasi');
+  }
+
+  if (detectedTopic.name === 'peminjaman unit puti') {
+    return (
+      combined.includes('puti') ||
+      combined.includes('peminjaman barang')
+    );
+  }
+
+  if (detectedTopic.name === 'surat rekomendasi beasiswa') {
+    return (
+      combined.includes('rekomendasi beasiswa') ||
+      combined.includes('surat rekomendasi') ||
+      combined.includes('beasiswa')
+    );
+  }
+
+  return true;
 }
 
 async function getKnowledgeContext(userQuery, detectedTopic) {
@@ -209,13 +254,22 @@ async function getKnowledgeContext(userQuery, detectedTopic) {
   const scoredChunks = [];
 
   for (const doc of documents) {
+    /*
+      Filter dokumen berdasarkan topik.
+      Ini mencegah pertanyaan Surat Dispensasi mengambil data Surat Rekomendasi Beasiswa.
+    */
+    if (!isDocumentMatchTopic(doc, detectedTopic)) {
+      continue;
+    }
+
     const chunks = Array.isArray(doc.chunks) ? doc.chunks : [];
 
     for (const chunk of chunks) {
       const chunkText = chunk?.text || '';
       const source = doc?.source || 'Tidak diketahui';
+      const categoryLabel = doc?.categoryLabel || '';
 
-      const searchableText = `${source}\n${chunkText}`;
+      const searchableText = `${source}\n${categoryLabel}\n${chunkText}`;
       const result = scoreChunk(searchableText, userQuery);
 
       if (isChunkRelevant(result, detectedTopic)) {
@@ -243,12 +297,15 @@ async function getKnowledgeContext(userQuery, detectedTopic) {
     };
   }
 
+  /*
+    Ambil 5 chunk terbaik saja.
+    Sebelumnya 8 chunk, terlalu banyak dan bisa membuat jawaban melebar.
+  */
   const contextText = scoredChunks
-    .slice(0, 8)
+    .slice(0, 5)
     .map((chunk, index) => {
       return `[Data ${index + 1}]
 Sumber: ${chunk.source}
-Kata cocok: ${chunk.matchedKeywords.join(', ') || '-'}
 Isi:
 ${chunk.text}`;
     })
@@ -283,12 +340,12 @@ ATURAN WAJIB:
 4. "Peminjaman logistik" tidak sama dengan "peminjaman Unit PuTI".
 5. Jika user menanyakan layanan yang tidak ada di DATA ACUAN, jawab persis:
 "Mohon maaf, informasi tersebut tidak tersedia dalam panduan kami."
-6. Jika DATA ACUAN membahas topik pertanyaan user, jawab dengan jelas, lengkap, dan terstruktur.
-7. Jika user menggunakan bahasa santai, typo, atau kalimat pendek, pahami maksudnya selama masih sesuai dengan DATA ACUAN.
-8. Jika ada bagian detail yang tidak tersedia di DATA ACUAN, katakan bahwa detail tersebut tidak tersedia.
-9. Jika jawaban berupa prosedur, gunakan langkah bernomor.
-10. Jika ada link dalam DATA ACUAN, tampilkan link tersebut apa adanya.
-11. Jangan menyebut "berdasarkan data acuan" secara berlebihan.
+6. Jawab sesuai inti pertanyaan user, jangan menambahkan informasi yang tidak ditanyakan.
+7. Jika pertanyaan meminta definisi, jawab definisi secara singkat dalam 1 paragraf.
+8. Jika pertanyaan meminta prosedur atau langkah, gunakan langkah bernomor.
+9. Jika pertanyaan meminta daftar, gunakan poin-poin singkat.
+10. Jangan menyebut frasa "DATA ACUAN" atau "berdasarkan DATA ACUAN" dalam jawaban.
+11. Jika ada link dalam DATA ACUAN, tampilkan link tersebut apa adanya.
 12. Gunakan bahasa Indonesia yang rapi, natural, dan mudah dipahami.
 `;
 }
@@ -305,9 +362,23 @@ export async function POST(req) {
     }
 
     const body = await req.json();
+
+    /*
+      Frontend kamu mengirim format:
+      {
+        messages: [
+          { role: 'assistant', content: '...' },
+          { role: 'user', content: 'pertanyaan user' }
+        ]
+      }
+    */
     const messages = Array.isArray(body.messages) ? body.messages : [];
 
-    const rawQuery = messages[messages.length - 1]?.content || '';
+    const lastUserMessage = [...messages]
+      .reverse()
+      .find((message) => message?.role === 'user');
+
+    const rawQuery = lastUserMessage?.content || '';
     const userQuery = rawQuery.trim();
 
     if (!userQuery) {
@@ -354,7 +425,7 @@ export async function POST(req) {
         { role: 'user', content: userQuery }
       ],
       temperature: 0,
-      max_tokens: 1600
+      max_tokens: 900
     });
 
     const reply = completion.choices[0]?.message?.content?.trim();
