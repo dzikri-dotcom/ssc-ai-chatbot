@@ -1,6 +1,6 @@
 'use client';
-
 import { useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import {
   Upload,
   FileText,
@@ -331,9 +331,16 @@ export default function AdminDashboard() {
       {/* Header Premium */}
       <header className="bg-[#101726]/80 backdrop-blur-xl border-b border-slate-800/80 px-6 h-[70px] flex items-center justify-between sticky top-0 z-50 shadow-lg shadow-black/20">
         <div className="flex items-center gap-4">
-          <div className="w-[38px] h-[38px] bg-white rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(204,0,0,0.15)]">
-            <span className="text-[11px] font-black text-[#CC0000] tracking-widest leading-tight text-center">TEL-U</span>
-          </div>
+<div className="w-[38px] h-[38px] bg-white rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(204,0,0,0.15)] p-1.5">
+  <Image
+    src="/img/telu.png"
+    alt="Telkom University Logo"
+    width={32}
+    height={32}
+    priority
+    className="w-full h-full object-contain"
+  />
+</div>
           <div>
             <p className="text-white text-sm font-black tracking-wide uppercase">SSC Document Portal</p>
             <p className="text-slate-400 text-[10px] font-bold tracking-widest uppercase">Student Service Center</p>
